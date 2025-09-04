@@ -1,0 +1,37 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: nfs-client-installer
+  namespace: kube-system
+spec:
+  selector:
+    matchLabels:
+      app: nfs-client-installer
+  template:
+    metadata:
+      labels:
+        app: nfs-client-installer
+    spec:
+      hostPID: true
+      restartPolicy: Always
+      containers:
+      - name: installer
+        image: oraclelinux:8       # full Oracle Linux 8 image
+        securityContext:
+          privileged: true
+        command:
+          - sh
+          - -c
+          - |
+            if ! rpm -q nfs-utils; then
+              yum install -y nfs-utils && echo "NFS client installed on $(hostname)"
+            else
+              echo "NFS client already installed on $(hostname)"
+            fi
+        volumeMounts:
+        - mountPath: /host
+          name: host
+      volumes:
+      - name: host
+        hostPath:
+          path: /

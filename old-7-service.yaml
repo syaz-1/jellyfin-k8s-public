@@ -1,0 +1,20 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: jellyfin
+  namespace: jellyfin
+spec:
+  type: LoadBalancer
+  selector:
+    app: jellyfin
+  ports:
+    # For cert-manager HTTP challenge
+    - name: http
+      port: 80
+      targetPort: 8089   # <-- Solver pod port
+      protocol: TCP
+    # For Jellyfin web UI
+    - name: jellyfin-ui
+      port: 8096
+      targetPort: 8096
+      protocol: TCP

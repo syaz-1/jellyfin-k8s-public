@@ -1,0 +1,321 @@
+
+# 🍿 Jellyfin + FileBrowser on Kubernetes (OCI Cloud)
+
+This project deploys a **self-hosted media streaming platform** using [Jellyfin](https://jellyfin.org/) and [FileBrowser](https://filebrowser.org/) on **Oracle Cloud Kubernetes (OKE)** with **Nginx Ingress** and **Let's Encrypt TLS** via `cert-manager`.
+
+---
+
+## **📌 Features**
+- 🎬 **Jellyfin**: Stream movies, TV shows, and music.
+- 📂 **FileBrowser**: Upload and manage files directly from a web UI.
+- 🌍 **Nginx Ingress**: Centralized ingress controller with SSL termination.
+- 🔒 **Let's Encrypt TLS**: Auto-managed certificates using `cert-manager`.
+- ☁️ **OCI Deployment**: Fully compatible with Oracle Kubernetes Engine (OKE).
+- 📡 **DuckDNS Integration**: Free dynamic DNS for public access.
+
+---
+
+## **⚙️ Prerequisites**
+
+Before you begin, make sure you have:
+
+1. **Kubernetes Cluster** (OKE or any K8s cluster).
+2. **kubectl** configured to access your cluster:
+   ```bash
+   kubectl get nodes
+   ```
+3. **Helm** installed (for `cert-manager` and Nginx Ingress).
+4. **DuckDNS domain** configured:
+   - Example: `jellyfin.duckdns.org`
+   - Point your DuckDNS subdomain to your cluster's ingress public IP.
+5. **NFS storage** configured for media files.
+
+---
+
+## **📂 Project Structure**
+
+```
+jellyfin-k8s/
+├── 1-namespace.yaml            # Kubernetes namespace for Jellyfin
+├── 2-pv-nfs.yaml               # Persistent Volume for NFS
+├── 3-pvc-nfs-yaml              # Persistent Volume Claim for Jellyfin
+├── 4-service.yaml               # Jellyfin service definition
+├── 6-deployment.yaml            # Jellyfin Deployment
+├── 8-jellyfin-ingress.yaml      # Jellyfin ingress
+├── 9-ingress.yaml               # Final Jellyfin ingress with TLS
+├── 10-filebrowser.yaml        # FileBrowser Deployment, Service, and Ingress
+└── cluster-issuer.yaml          # Let's Encrypt ClusterIssuer for TLS
+```
+
+> ⚠️ **Note:**  
+> `cluster-issuer.yaml` is **not included** in this public repo because it contains sensitive information such as email addresses.  
+> You must create your own following the instructions below.
+
+---
+
+## 📝 Manual Updates Required
+
+This repo uses placeholders to keep private data safe.  
+Before applying these files, **you must replace the placeholders**:
+
+| File                     | Placeholder                        | Replace With |
+|--------------------------|------------------------------------|--------------|
+| `2-pv-nfs.yaml`          | `<REPLACE_WITH_YOUR_VOLUME_HANDLE>` | Your **OCI File Storage volumeHandle** |
+| `8-jellyfin-ingress.yaml` | `<YOUR_DOMAIN>`                     | Your **domain name**, e.g., `jellyfin.example.com` |
+| `10-filebrowser.yaml`     | `<YOUR_DOMAIN>`                     | Your **domain name**, e.g., `files.example.com` |
+
+---
+
+## 🔧 Create Your Own ClusterIssuer
+
+You **must manually create** a `cluster-issuer.yaml` for Cert-Manager.  
+Here is an example you can adapt:
+
+```yaml
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt-prod
+spec:
+  acme:
+    server: https://acme-v02.api.letsencrypt.org/directory
+    email: <YOUR_EMAIL_ADDRESS>
+    privateKeySecretRef:
+      name: letsencrypt-prod
+    solvers:
+    - http01:
+        ingress:
+          class: nginx
+
+---
+
+## **🚀 Deployment Steps**
+
+### **Step 1 — Clone the Repository**
+Clone this repo to your local machine:
+
+
+---
+
+### **Step 2 — Create the Namespace**
+Create a namespace to isolate Jellyfin and FileBrowser resources:
+```bash
+kubectl apply -f 1-namespace.yaml
+```
+
+Verify:
+```bash
+kubectl get ns
+```
+
+Expected output:
+```
+NAME         STATUS
+jellyfin     Active
+```
+
+---
+
+### **Step 3 — Deploy NFS Storage**
+Ensure you have a working **NFS server** that stores your media files.
+
+1. Create a **PersistentVolume (PV), . Replace `<REPLACE_WITH_YOUR_VOLUME_HANDLE>**:
+   
+   ```text
+   example:
+   volumeHandle: ocid1.filesystem.....:10.0.X.X:/FileSystem
+   ````
+   ```bash
+   kubectl apply -f 2-pv-nfs.yaml
+   ```
+
+2. Create a **PersistentVolumeClaim (PVC)**:
+   ```bash
+   kubectl apply -f 3-pvc-nfs.yaml
+   ```
+
+Verify that PV and PVC are bound:
+```bash
+kubectl get pv,pvc -n jellyfin
+```
+
+---
+
+### **Step 4 — Deploy Jellyfin**
+Deploy Jellyfin to the cluster:
+```bash
+kubectl apply -f 6-jellyfin-deployment.yaml
+kubectl apply -f 4-jellyfin-service.yaml
+```
+
+Check pods:
+```bash
+kubectl get pods -n jellyfin
+```
+
+Expected output:
+```
+NAME                          READY   STATUS    RESTARTS   AGE
+jellyfin-xxxxx                1/1     Running   0          1m
+```
+
+---
+
+### **Step 5 — Install Nginx Ingress**
+Nginx will route external traffic to your services.
+
+1. Add the Nginx Helm repo:
+   ```bash
+   helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx
+   helm repo update
+   ```
+
+2. Install Nginx Ingress:
+   ```bash
+   helm install ingress-nginx ingress-nginx/ingress-nginx --namespace kube-system
+   ```
+
+Verify the external IP:
+```bash
+kubectl get svc -n kube-system
+```
+
+Look for output like:
+```
+ingress-nginx-controller   LoadBalancer   <EXTERNAL-IP>   80:xxxx/TCP,443:xxxx/TCP
+```
+
+---
+
+### **Step 6 — Install cert-manager**
+cert-manager automates SSL certificate issuance.
+
+1. Install cert-manager:
+   ```bash
+   kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.14.3/cert-manager.yaml
+   ```
+
+2. Verify cert-manager pods:
+   ```bash
+   kubectl get pods -n cert-manager
+   ```
+
+3. Apply the ClusterIssuer for Let's Encrypt:
+   ```bash
+   kubectl apply -f 5-cert-manager.yaml
+   ```
+
+---
+
+### **Step 7 — Update DuckDNS**
+Point your **DuckDNS domain** to the external IP from Step 5.
+
+Example configuration:
+```
+jellyfin.duckdns.org → <EXTERNAL-IP>
+files.jellyfin.duckdns.org → <EXTERNAL-IP>
+```
+
+Verify DNS resolution:
+```bash
+nslookup jellyfin.duckdns.org
+```
+
+---
+UPDATE DOMAIN NAME - replace <YOUR_DOMAIN> with your actual domain name in the ingress and filebrowser yaml.
+
+### **Step 8 — Configure Jellyfin Ingress**
+Deploy the ingress resource for Jellyfin:
+```bash
+kubectl apply -f 8-jellyfin-ingress.yaml
+```
+
+Verify ingress:
+```bash
+kubectl get ingress -n jellyfin
+```
+
+Expected output:
+```
+NAME              CLASS   HOSTS                      ADDRESS         PORTS   AGE
+jellyfin-ingress  nginx   jellyfin.duckdns.org     <EXTERNAL-IP>   80,443  1m
+```
+
+---
+
+### **Step 9 — Deploy FileBrowser**
+FileBrowser provides a web UI for uploading and managing files in your media library.
+
+1. Deploy FileBrowser:
+   ```bash
+   kubectl apply -f 10-filebrowser.yaml
+   ```
+
+2. Verify the pod:
+   ```bash
+   kubectl get pods -n jellyfin -l app=filebrowser
+   ```
+
+3. Get the default credentials:
+   ```bash
+   kubectl logs -n jellyfin <filebrowser-pod-name>
+   ```
+   Look for lines like:
+   ```
+   User 'admin' initialized with randomly generated password: <PASSWORD>
+   ```
+
+4. Access FileBrowser at:
+   ```
+   https://files.jellyfin.duckdns.org
+   ```
+
+
+
+
+Verify the new service:
+```bash
+kubectl get svc -n jellyfin
+```
+
+Expected output:
+```
+NAME          TYPE        CLUSTER-IP       PORT(S)
+filebrowser   ClusterIP   <cluster ip>     8080/TCP
+jellyfin      ClusterIP   <cluster ip>    8096/TCP
+```
+
+---
+
+## **🌐 Access Your Services**
+
+| Service        | URL                                    | Notes                  |
+|----------------|----------------------------------------|------------------------|
+| **Jellyfin**   | `https://jellyfin.jellyfin.duckdns.org`       | Streaming platform     |
+| **FileBrowser**| `https://files.jellyfin.duckdns.org` | Upload movies easily   |
+
+---
+
+## **🧹 Cleanup**
+To completely remove the deployment:
+
+```bash
+kubectl delete ns jellyfin
+kubectl delete ns cert-manager
+helm uninstall ingress-nginx -n kube-system
+```
+
+---
+
+## **📌 Summary**
+
+| Component       | Purpose                            |
+|----------------|------------------------------------|
+| Jellyfin       | Media server for streaming          |
+| FileBrowser    | Web-based file uploader             |
+| Nginx Ingress  | Entry point for HTTPS traffic       |
+| cert-manager   | Automatic SSL certificate handling |
+| DuckDNS        | Free dynamic DNS                    |
+| NFS            | Shared persistent storage           |
+
+With this setup, you now have a **fully secure, cloud-based media streaming platform** accessible anywhere with **HTTPS encryption**.
